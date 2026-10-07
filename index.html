@@ -1,0 +1,1277 @@
+```html
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Lane Krajcik // Terminal [Fairbanks, AK]</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Google Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --term-bg: #0c1015;
+      --term-card: #121820;
+      --term-text: #38bdf8;
+      --term-accent: #34d399;
+      --term-dim: #64748b;
+      --term-prompt: #f43f5e;
+      --term-border: rgba(56, 189, 248, 0.2);
+    }
+
+    [data-theme="matrix"] {
+      --term-bg: #030a04;
+      --term-card: #061509;
+      --term-text: #22c55e;
+      --term-accent: #4ade80;
+      --term-dim: #15803d;
+      --term-prompt: #86efac;
+      --term-border: rgba(34, 197, 94, 0.25);
+    }
+
+    [data-theme="amber"] {
+      --term-bg: #0f0a02;
+      --term-card: #1c1404;
+      --term-text: #f59e0b;
+      --term-accent: #fbbf24;
+      --term-dim: #92400e;
+      --term-prompt: #fde68a;
+      --term-border: rgba(245, 158, 11, 0.25);
+    }
+
+    [data-theme="dos"] {
+      --term-bg: #0000aa;
+      --term-card: #000088;
+      --term-text: #ffffff;
+      --term-accent: #ffff55;
+      --term-dim: #aaaaaa;
+      --term-prompt: #ffffff;
+      --term-border: rgba(255, 255, 255, 0.3);
+    }
+
+    [data-theme="nord"] {
+      --term-bg: #2e3440;
+      --term-card: #3b4252;
+      --term-text: #eceff4;
+      --term-accent: #88c0d0;
+      --term-dim: #4c566a;
+      --term-prompt: #81a1c1;
+      --term-border: rgba(136, 192, 208, 0.25);
+    }
+
+    body {
+      background-color: var(--term-bg);
+      color: var(--term-text);
+      font-family: 'JetBrains Mono', monospace;
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .term-border {
+      border-color: var(--term-border);
+    }
+
+    .term-text-accent {
+      color: var(--term-accent);
+    }
+
+    .term-text-dim {
+      color: var(--term-dim);
+    }
+
+    .term-text-prompt {
+      color: var(--term-prompt);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--term-dim);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--term-accent);
+    }
+
+    /* CRT scanlines effect */
+    .crt-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+      background-size: 100% 4px;
+      pointer-events: none;
+      z-index: 99;
+      opacity: 0.55;
+    }
+
+    .cursor-blink {
+      display: inline-block;
+      width: 8px;
+      height: 1.15em;
+      background-color: var(--term-accent);
+      vertical-align: text-bottom;
+      animation: blink 1s step-start infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    #matrixCanvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+      background: rgba(0, 0, 0, 0.92);
+    }
+  </style>
+</head>
+
+<body class="h-full flex flex-col antialiased selection:bg-emerald-500/30 selection:text-white" onclick="Term.focusInput()">
+
+  <canvas id="matrixCanvas"></canvas>
+  <div id="crtOverlay" class="crt-overlay"></div>
+
+  <!-- Terminal Window Shell -->
+  <div class="flex-1 flex flex-col max-w-6xl w-full mx-auto sm:my-2 md:my-3 sm:rounded-xl overflow-hidden term-border sm:border shadow-2xl relative bg-[var(--term-bg)]">
+    
+    <!-- Terminal Header / Titlebar -->
+    <header class="bg-black/60 px-4 py-2.5 border-b term-border flex items-center justify-between select-none z-10 shrink-0">
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <button onclick="Term.clear(); Term.toast('Terminal cleared');" class="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-400 transition" title="Clear screen"></button>
+          <button onclick="Term.toggleScanlines()" class="w-3 h-3 rounded-full bg-amber-500/80 hover:bg-amber-400 transition" title="Toggle CRT scanlines"></button>
+          <button onclick="Term.toggleSound()" class="w-3 h-3 rounded-full bg-emerald-500/80 hover:bg-emerald-400 transition" title="Toggle audio clicks"></button>
+        </div>
+        <div class="h-3.5 w-[1px] bg-white/20 hidden sm:block"></div>
+        <div class="text-xs tracking-wider flex items-center gap-2 font-mono">
+          <span class="font-bold term-text-accent">lane@fairbanks-alaska</span>
+          <span class="text-white/40 hidden md:inline">|</span>
+          <span class="text-xs term-text-dim hidden md:inline">64.82°N 147.73°W</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 text-xs">
+        <span id="soundStatus" onclick="Term.toggleSound()" class="cursor-pointer px-2 py-0.5 rounded bg-white/5 border term-border text-[11px] hover:text-white transition hidden sm:inline">
+          🔊 SFX: ON
+        </span>
+        <select onchange="Term.setTheme(this.value)" class="bg-black/60 border term-border text-[11px] rounded px-2 py-0.5 outline-none cursor-pointer text-slate-300">
+          <option value="arctic">Arctic Cyan</option>
+          <option value="matrix">Matrix Green</option>
+          <option value="amber">Amber CRT</option>
+          <option value="dos">Classic DOS</option>
+          <option value="nord">Nord Frost</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Main Terminal Scroll Buffer -->
+    <main id="termOutput" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 font-mono text-xs sm:text-sm leading-relaxed" onclick="Term.focusInput()">
+      <!-- Boot / Welcome Banner injected here dynamically -->
+    </main>
+
+    <!-- Active Command Prompt Input Area -->
+    <div class="p-3 sm:p-4 bg-black/50 border-t term-border flex items-center gap-2 z-10 shrink-0">
+      <span class="term-text-prompt font-bold shrink-0 flex items-center gap-1 select-none">
+        <span>lane@fairbanks</span><span class="term-text-dim">:</span><span class="term-text-accent">~</span><span class="text-white/70">$</span>
+      </span>
+      <div class="relative flex-1 flex items-center">
+        <input 
+          id="termInput" 
+          type="text" 
+          class="w-full bg-transparent border-none outline-none p-0 focus:ring-0 font-mono text-xs sm:text-sm text-white"
+          autocomplete="off" 
+          autocorrect="off" 
+          autocapitalize="off" 
+          spellcheck="false"
+          placeholder="type 'help' or tap a chip below..."
+        />
+        <span class="cursor-blink ml-1"></span>
+      </div>
+      <button onclick="Term.submitInput()" class="px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-xs font-mono border term-border transition shrink-0">
+        Run ↵
+      </button>
+    </div>
+
+    <!-- Quick Touch Action Chips (Ensures smooth experience on mobile & touch) -->
+    <nav class="bg-black/80 px-3 py-2 border-t term-border flex items-center gap-1.5 overflow-x-auto text-[11px] shrink-0 select-none z-10">
+      <span class="term-text-dim mr-1 text-[10px] uppercase font-bold tracking-widest hidden sm:inline">Shortcuts:</span>
+      <button onclick="Term.execute('about')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">about</button>
+      <button onclick="Term.execute('story')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">story</button>
+      <button onclick="Term.execute('skills')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">skills</button>
+      <button onclick="Term.execute('projects')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">projects</button>
+      <button onclick="Term.execute('fairbanks')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">fairbanks</button>
+      <button onclick="Term.execute('contact')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">contact</button>
+      <button onclick="Term.execute('neofetch')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">neofetch</button>
+      <button onclick="Term.execute('game')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">game 🎮</button>
+      <button onclick="Term.execute('guestbook')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">guestbook</button>
+      <button onclick="Term.execute('help')" class="px-2 py-0.5 rounded bg-white/5 border term-border hover:bg-white/10 transition">help</button>
+    </nav>
+
+  </div>
+
+  <!-- Subtle Status Footer Bar -->
+  <footer class="text-center py-1 text-[10px] term-text-dim font-mono select-none hidden sm:block">
+    Lane Krajcik · 1301 30th Ave, Fairbanks, AK 99701 · Call: (907) 457-2653 · Alaska Standard Time
+  </footer>
+
+  <!-- Notification Toast Overlay -->
+  <div id="toast" class="fixed bottom-14 right-4 z-50 transform translate-y-12 opacity-0 transition-all duration-300 bg-black/90 border term-border px-4 py-2 rounded-lg text-xs font-mono text-white shadow-2xl flex items-center gap-2">
+    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+    <span id="toastMsg">Ready</span>
+  </div>
+
+  <script>
+    /**
+     * Lane Krajcik Humanized CMD Engine
+     * Completely self-contained interactive terminal portfolio
+     */
+    const Term = (function () {
+      
+      // Verified Person & Location Data
+      const PROFILE = {
+        name: "Lane Krajcik",
+        gender: "Male",
+        address: "1301 30th Ave",
+        city: "Fairbanks",
+        state: "Alaska",
+        zip: "99701",
+        country: "United States",
+        phone: "(907) 457-2653",
+        lat: 64.820038,
+        lon: -147.731075,
+        elevation: "446 ft (Tanana River Valley)",
+        temperature: "-12°F (Clear, Auroral activity visible)",
+        currentFocus: "Low-latency systems, kernel drivers & surviving deep sub-arctic winters"
+      };
+
+      // State variables
+      let history = [];
+      let historyIndex = -1;
+      let soundEnabled = true;
+      let audioCtx = null;
+      let isMatrixActive = false;
+      let interactiveMode = null; // 'msg_name', 'msg_content', 'game'
+      let tempMsg = { name: '', body: '' };
+      let gameState = null; // for text adventure
+
+      const COMMAND_LIST = [
+        'help', 'about', 'story', 'skills', 'projects', 'fairbanks',
+        'contact', 'call', 'locate', 'neofetch', 'resume', 'guestbook',
+        'game', 'matrix', 'coffee', 'weather', 'clear', 'cls', 'theme', 'sound'
+      ];
+
+      // Web Audio API Synthesizer (Mechanical keystrokes & chirps)
+      function initAudio() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) audioCtx = new AudioContextClass();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      }
+
+      function beep(freq, type = 'sine', duration = 0.04, gainVal = 0.02) {
+        if (!soundEnabled) return;
+        try {
+          initAudio();
+          if (!audioCtx) return;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      function clickSound() {
+        beep(380 + Math.random() * 80, 'triangle', 0.02, 0.015);
+      }
+
+      function successSound() {
+        beep(587.33, 'sine', 0.08, 0.03); // D5
+        setTimeout(() => beep(880, 'sine', 0.1, 0.03), 60); // A5
+      }
+
+      function errorSound() {
+        beep(220, 'sawtooth', 0.12, 0.03);
+      }
+
+      // Toast feedback
+      function toast(msg) {
+        const el = document.getElementById('toast');
+        const txt = document.getElementById('toastMsg');
+        if (!el || !txt) return;
+        txt.textContent = msg;
+        el.classList.remove('translate-y-12', 'opacity-0');
+        el.classList.add('translate-y-0', 'opacity-100');
+        setTimeout(() => {
+          el.classList.add('translate-y-12', 'opacity-0');
+          el.classList.remove('translate-y-0', 'opacity-100');
+        }, 2500);
+      }
+
+      // Clipboard helper
+      function copyToClipboard(text, notifyText = "Copied to clipboard") {
+        initAudio();
+        successSound();
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => toast(notifyText)).catch(() => fallbackCopy(text, notifyText));
+        } else {
+          fallbackCopy(text, notifyText);
+        }
+      }
+
+      function fallbackCopy(text, notifyText) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+          document.execCommand('copy');
+          toast(notifyText);
+        } catch (err) {
+          toast("Copy failed");
+        }
+        document.body.removeChild(ta);
+      }
+
+      // Terminal Buffer Output
+      function print(html) {
+        const out = document.getElementById('termOutput');
+        if (!out) return;
+        const entry = document.createElement('div');
+        entry.className = "term-entry space-y-2 animate-fadeIn";
+        entry.innerHTML = html;
+        out.appendChild(entry);
+        out.scrollTop = out.scrollHeight;
+      }
+
+      function printEcho(cmd) {
+        print(`
+          <div class="flex items-center gap-2 pt-2 border-t term-border text-white/80">
+            <span class="term-text-prompt font-bold">lane@fairbanks</span><span class="term-text-dim">:</span><span class="term-text-accent font-bold">~</span><span class="text-white/60">$</span>
+            <span class="text-white font-medium">${escapeHTML(cmd)}</span>
+          </div>
+        `);
+      }
+
+      function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, tag => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          "'": '&#39;',
+          '"': '&quot;'
+        }[tag] || tag));
+      }
+
+      function focusInput() {
+        const inp = document.getElementById('termInput');
+        if (inp) inp.focus();
+      }
+
+      // Humanized Initial Boot Sequence
+      function renderWelcome() {
+        print(`
+          <div class="space-y-3 pb-2">
+            <pre class="term-text-accent font-bold text-[10px] sm:text-xs leading-none select-none">
+  _                 _  __           _      _ _    
+ | |   __ _ _ _  ___| |/ /_ _ __ _  (_)__ (_) |__ 
+ | |__/ _\` | ' \\/ -_) ' <| '_/ _\` | | / _|| | / / 
+ |____\\__,_|_||_\\___|_|\\_\\_| \\__,_|/ \\__/_/ |_\\_\\ 
+                                 |__/   |__/      
+            </pre>
+            <div class="text-xs text-white/90 space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">LANE KRAJCIK</span>
+                <span class="term-text-dim">•</span>
+                <span class="text-slate-300">Fairbanks, Alaska (64.82°N, -147.73°W)</span>
+                <span class="term-text-dim">•</span>
+                <a href="tel:9074572653" class="term-text-accent hover:underline">(907) 457-2653</a>
+              </div>
+              <p class="text-slate-300 pt-1 leading-relaxed">
+                "Welcome to my workstation. I'm a software & systems engineer living off 30th Ave in Fairbanks, AK.
+                Where others test software in climate-controlled server rooms, I build systems tested against frozen fiber cables, -40°F cold snaps, and power shifts.
+                Have a look around, run some commands, or drop me a transmission."
+              </p>
+            </div>
+            <div class="p-2.5 rounded bg-white/[0.03] border term-border text-xs flex flex-wrap items-center justify-between gap-2">
+              <div class="text-slate-300">
+                Type <span class="term-text-accent font-bold cursor-pointer underline" onclick="Term.execute('help')">help</span> for commands, or <span class="term-text-prompt font-bold cursor-pointer underline" onclick="Term.execute('about')">about</span> to hear my story.
+              </div>
+              <div class="text-[11px] term-text-dim">
+                Auto-complete with [TAB] · Arrow Keys for History
+              </div>
+            </div>
+          </div>
+        `);
+      }
+
+
+      function execute(rawInput) {
+        initAudio();
+        const input = rawInput.trim();
+        if (!input) return;
+
+        printEcho(input);
+        history.push(input);
+        historyIndex = history.length;
+
+        // Check if currently inside interactive mode
+        if (interactiveMode) {
+          handleInteractiveMode(input);
+          return;
+        }
+
+        const args = input.split(' ').filter(Boolean);
+        const cmd = args[0].toLowerCase();
+
+        switch (cmd) {
+          case 'help':
+            print(`
+              <div class="space-y-3 p-3 rounded bg-white/[0.02] border term-border text-xs">
+                <div class="font-bold term-text-accent uppercase tracking-wider text-xs">Available System Directives</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-slate-300">
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('about')">about</span> - Who I am & what drives me</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('story')">story</span> - The journey to Fairbanks, Alaska</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('skills')">skills</span> - Languages, kernel, networking & tools</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('projects')">projects</span> - What I've engineered and shipped</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('fairbanks')">fairbanks</span> - Life at 64.82°N (cold, moose, aurora)</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('contact')">contact</span> - Phone, email, address & transmission form</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('call')">call</span> - Quick-dial (907) 457-2653</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('locate')">locate</span> - GPS coordinates & map view</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('neofetch')">neofetch</span> - System specs & ASCII Alaska</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('guestbook')">guestbook</span> - Read or sign my visitor logbook</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('game')">game</span> - Text RPG: Survive Fairbanks at -40°F</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('resume')">resume</span> - Download official curriculum vitae (.txt)</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('coffee')">coffee</span> - Lane's arctic brewing ratio</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('matrix')">matrix</span> - Digital rain screensaver</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('theme')">theme</span> - Toggle styles (arctic, matrix, amber, dos, nord)</div>
+                  <div><span class="text-white font-bold cursor-pointer hover:underline" onclick="Term.execute('clear')">clear</span> - Flush the terminal display</div>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'about':
+          case 'bio':
+          case 'whoami':
+            print(`
+              <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs leading-relaxed text-slate-300">
+                <div class="flex items-center justify-between border-b term-border pb-2">
+                  <span class="text-white font-bold text-sm">${PROFILE.name} // Systems & Infrastructure</span>
+                  <span class="term-text-accent font-mono">[Fairbanks, AK]</span>
+                </div>
+                <p>
+                  Hey there, I'm <strong class="text-white">Lane</strong>. I'm a builder, systems engineer, and problem solver based at <strong class="text-white">1301 30th Ave in Fairbanks, Alaska</strong>.
+                </p>
+                <p>
+                  Most engineers think about reliability in terms of multi-region AWS availability zones. Up here, reliability is physical. When it's -45°F outside, diesel generators need heating pads, lithium batteries lose half their capacity in twenty minutes, and an icy tree limb taking down a single power line tests whether your system actually knows how to gracefully degrade.
+                </p>
+                <p>
+                  I write low-level code that respects hardware constraints, design resilient distributed systems, and don't panic when things break because I've spent years learning how to build things that bend rather than shatter.
+                </p>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-[11px]">
+                  <div class="p-2 rounded bg-black/40 border term-border">
+                    <span class="term-text-dim block">Pronouns & Sex</span>
+                    <span class="text-white font-medium">He/Him · Male</span>
+                  </div>
+                  <div class="p-2 rounded bg-black/40 border term-border">
+                    <span class="term-text-dim block">Location</span>
+                    <span class="text-white font-medium">Fairbanks, AK</span>
+                  </div>
+                  <div class="p-2 rounded bg-black/40 border term-border">
+                    <span class="term-text-dim block">Phone Hotline</span>
+                    <a href="tel:9074572653" class="term-text-accent font-medium hover:underline">(907) 457-2653</a>
+                  </div>
+                  <div class="p-2 rounded bg-black/40 border term-border">
+                    <span class="term-text-dim block">Coordinates</span>
+                    <span class="text-white font-medium">64.82°N, -147.73°W</span>
+                  </div>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'story':
+            print(`
+              <div class="space-y-2.5 p-4 rounded bg-white/[0.03] border term-border text-xs leading-relaxed text-slate-300">
+                <div class="font-bold text-white text-sm">How I Ended Up Building Systems In Interior Alaska</div>
+                <p>
+                  People constantly ask: <em>"Lane, why Fairbanks? Why not Silicon Valley, Seattle, or Austin?"</em>
+                </p>
+                <p>
+                  Because out here, there's no noise. When you look out the window at 1301 30th Ave during the dead of December, the air is dead calm and the smoke from woodstoves rises completely vertical into a twilight sky. You have hours of focused, uninterrupted quiet to think deeply through race conditions, kernel panics, and distributed protocols.
+                </p>
+                <p>
+                  Living in Fairbanks requires deliberate preparation. You don't just "leave the house" in winter; you plug your engine block heater in, check the road ice conditions, and verify your emergency gear. That exact same mindset shapes my engineering: every deployment has a fallback, every network partition is planned for, and every edge case is addressed before it catches fire.
+                </p>
+                <div class="text-[11px] term-text-accent">
+                  "You learn a lot about high availability when your ambient environment is actively trying to freeze your hardware."
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'skills':
+            print(`
+              <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs">
+                <div class="font-bold term-text-accent uppercase tracking-wider text-xs">Technical Arsenal & Comfort Zones</div>
+                
+                <div class="space-y-2 text-slate-300">
+                  <div>
+                    <div class="flex justify-between font-medium text-white mb-1">
+                      <span>Low-Level Systems (Rust, C++20, Linux Kernel, eBPF)</span>
+                      <span class="term-text-accent">96%</span>
+                    </div>
+                    <p class="text-slate-400 text-[11px]">Memory management, custom packet filtering, writing daemons that run undisturbed for years.</p>
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between font-medium text-white mb-1">
+                      <span>Distributed Engineering (Go, Raft, WireGuard, gRPC, Protobuf)</span>
+                      <span class="term-text-accent">92%</span>
+                    </div>
+                    <p class="text-slate-400 text-[11px]">Mesh networks, peer-to-peer gossip protocols, replicated logs that survive flaky satellite connections.</p>
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between font-medium text-white mb-1">
+                      <span>Rugged Hardware & IoT (LoRa 915MHz, Thermal Throttling, Sensors)</span>
+                      <span class="term-text-accent">94%</span>
+                    </div>
+                    <p class="text-slate-400 text-[11px]">Hardware designed to boot up from -50°F cold soaks without frying memory capacitors.</p>
+                  </div>
+
+                  <div>
+                    <div class="flex justify-between font-medium text-white mb-1">
+                      <span>Tooling, Shell & Automation (Bash, POSIX, Docker, Git, Prometheus)</span>
+                      <span class="term-text-accent">95%</span>
+                    </div>
+                    <p class="text-slate-400 text-[11px]">Clean terminal pipelines, verifiable builds, observable systems that alert before things collapse.</p>
+                  </div>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'projects':
+            print(`
+              <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs">
+                <div class="font-bold term-text-accent uppercase tracking-wider text-xs">Shipped Systems & Key Deployments</div>
+                
+                <div class="space-y-3 text-slate-300">
+                  <div class="p-3 rounded bg-black/40 border term-border space-y-1">
+                    <div class="flex justify-between items-center">
+                      <span class="text-white font-bold">1. Aurora Borealis Real-Time SkyCam & IMF Predictor</span>
+                      <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px]">LIVE IN FAIRBANKS</span>
+                    </div>
+                    <p class="text-slate-300 text-xs">
+                      A lightweight edge system deployed in Fairbanks analyzing solar wind velocity, interplanetary magnetic field (IMF Bz) vectors, and local optical fish-eye feeds to predict auroral overhead substorms 25 minutes before ground visibility.
+                    </p>
+                    <div class="text-[11px] term-text-accent">Stack: Rust · OpenCV · WebSockets · NOAA Space Weather API</div>
+                  </div>
+
+                  <div class="p-3 rounded bg-black/40 border term-border space-y-1">
+                    <div class="flex justify-between items-center">
+                      <span class="text-white font-bold">2. Arctic-Grade Sub-Zero Edge Node Rig</span>
+                      <span class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[10px]">1301 30th Ave</span>
+                    </div>
+                    <p class="text-slate-300 text-xs">
+                      Physical computation cluster operating at 1301 30th Ave with automated pre-heat coils, custom temperature sensor triggers via GPIO, and dual-uplink failover using Starlink and municipal fiber.
+                    </p>
+                    <div class="text-[11px] term-text-accent">Stack: Embedded Linux · eBPF · Python · WireGuard</div>
+                  </div>
+
+                  <div class="p-3 rounded bg-black/40 border term-border space-y-1">
+                    <div class="flex justify-between items-center">
+                      <span class="text-white font-bold">3. Tanana Valley Decentralized Emergency Mesh</span>
+                      <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">P2P RADIO</span>
+                    </div>
+                    <p class="text-slate-300 text-xs">
+                      LoRa 915MHz store-and-forward radio routing daemon ensuring neighborhood wellness reports and road hazard dispatches propagate through Interior Alaska even if cellular base stations lose power.
+                    </p>
+                    <div class="text-[11px] term-text-accent">Stack: Go · LoRaWAN · SQLite · Protobuf</div>
+                  </div>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'fairbanks':
+          case 'alaska':
+            print(`
+              <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs leading-relaxed text-slate-300">
+                <div class="font-bold text-white text-sm">Dispatches from Fairbanks, Alaska (Zip: 99701)</div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div class="p-2.5 rounded bg-black/40 border term-border">
+                    <div class="term-text-accent font-bold">Current Ambient</div>
+                    <div class="text-white text-base font-bold">-12°F / -24°C</div>
+                    <div class="term-text-dim text-[11px]">Fairbanks Airport Station</div>
+                  </div>
+                  <div class="p-2.5 rounded bg-black/40 border term-border">
+                    <div class="term-text-accent font-bold">Solar Window</div>
+                    <div class="text-white text-base font-bold">~4h 12m Daylight</div>
+                    <div class="term-text-dim text-[11px]">Deep winter twilight swing</div>
+                  </div>
+                  <div class="p-2.5 rounded bg-black/40 border term-border">
+                    <div class="term-text-accent font-bold">Aurora Borealis</div>
+                    <div class="text-white text-base font-bold">Kp 4.8 (Active)</div>
+                    <div class="term-text-dim text-[11px]">Visible right now overhead</div>
+                  </div>
+                </div>
+                <p>
+                  Fairbanks sits right in the Tanana Valley. In the winter, cold air sinks and pools here, creating what meteorologists call a severe temperature inversion. It can be -45°F at my doorstep on 30th Ave while the ridge tops are 15 degrees warmer.
+                </p>
+                <div class="p-2 rounded bg-white/[0.02] border term-border text-[11px]">
+                  💡 <strong>Local Survival Rule:</strong> Always keep a heavy rated sleeping bag, wool socks, and a canister of jetboil stove in your vehicle trunk. If you slide into a snowbank outside town, that gear buys you hours until a truck pulls up.
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'contact':
+            print(`
+              <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs leading-relaxed text-slate-300">
+                <div class="font-bold text-white text-sm">Lane Krajcik // Verified Contact Coordinates</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="p-3 rounded bg-black/40 border term-border space-y-1">
+                    <span class="term-text-dim block text-[11px]">Telephone Voice & SMS</span>
+                    <a href="tel:9074572653" class="text-white font-bold text-sm hover:text-emerald-400 transition">${PROFILE.phone}</a>
+                    <div class="pt-1">
+                      <button onclick="Term.copyToClipboard('${PROFILE.phone}', 'Phone copied to clipboard')" class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[11px] text-white">Copy Phone</button>
+                    </div>
+                  </div>
+                  <div class="p-3 rounded bg-black/40 border term-border space-y-1">
+                    <span class="term-text-dim block text-[11px]">Physical Base</span>
+                    <span class="text-white font-bold text-sm block">${PROFILE.address}</span>
+                    <span class="text-slate-400 text-xs">${PROFILE.city}, ${PROFILE.state} ${PROFILE.zip}</span>
+                    <div class="pt-1">
+                      <button onclick="Term.copyToClipboard('${PROFILE.address}, ${PROFILE.city}, ${PROFILE.state} ${PROFILE.zip}', 'Address copied')" class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[11px] text-white">Copy Address</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="p-3 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center justify-between">
+                  <span>Want to send a direct message through this terminal?</span>
+                  <button onclick="Term.startInteractiveMsg()" class="px-3 py-1 rounded bg-emerald-500 text-black font-bold hover:bg-emerald-400 transition">Start Transmission ✉</button>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'call':
+            print(`
+              <div class="p-3 rounded bg-white/[0.03] border term-border text-xs text-slate-300 space-y-1">
+                <div>Dialing <strong class="text-white">${PROFILE.phone}</strong>...</div>
+                <div>If your device supports tel handlers, it will prompt to dial now.</div>
+                <div class="pt-1">
+                  <a href="tel:9074572653" class="px-3 py-1 rounded bg-emerald-500 text-black font-bold inline-block hover:bg-emerald-400">Open Phone Dialer</a>
+                </div>
+              </div>
+            `);
+            try { window.location.href = "tel:9074572653"; } catch (e) {}
+            successSound();
+            break;
+
+          case 'locate':
+          case 'map':
+          case 'geo':
+            print(`
+              <div class="p-4 rounded bg-white/[0.03] border term-border text-xs space-y-2 text-slate-300">
+                <div class="font-bold text-white text-sm">Station Geolocation // 1301 30th Ave</div>
+                <div class="font-mono text-emerald-400">Latitude:  ${PROFILE.lat}° N</div>
+                <div class="font-mono text-emerald-400">Longitude: ${PROFILE.lon}° W</div>
+                <div class="font-mono text-slate-400">Interior Alaska, United States</div>
+                <div class="pt-2 flex gap-2">
+                  <a href="https://www.google.com/maps/search/?api=1&query=${PROFILE.lat},${PROFILE.lon}" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-white font-medium">Open in Google Maps ↗</a>
+                  <button onclick="Term.copyToClipboard('${PROFILE.lat}, ${PROFILE.lon}', 'GPS coordinates copied')" class="px-3 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300">Copy Coords</button>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'neofetch':
+            print(`
+              <div class="flex flex-col sm:flex-row gap-4 p-4 rounded bg-white/[0.02] border term-border text-xs font-mono">
+                <pre class="term-text-accent font-bold select-none leading-tight shrink-0">
+       /\\
+      /  \\
+     / /\\ \\    Fairbanks
+    / /__\\ \\   Station
+   / /    \\ \\  64.82°N
+  /_/      \\_\\ -147.73°W
+                </pre>
+                <div class="space-y-1 text-slate-300">
+                  <div><strong class="text-white">lane</strong>@<strong class="term-text-accent">fairbanks-ak</strong></div>
+                  <div class="text-white/40">-----------------------------</div>
+                  <div><span class="term-text-dim">OS:</span> Alpine Linux x86_64 / Sub-Zero Kernel</div>
+                  <div><span class="term-text-dim">Host:</span> 1301 30th Ave [Fairbanks, AK 99701]</div>
+                  <div><span class="term-text-dim">Phone:</span> <a href="tel:9074572653" class="hover:underline text-white">(907) 457-2653</a></div>
+                  <div><span class="term-text-dim">Uptime:</span> 342 days, 14 hours (Zero reboots during cold snap)</div>
+                  <div><span class="term-text-dim">Shell:</span> zsh 5.9 with custom Alaska prompt</div>
+                  <div><span class="term-text-dim">Terminal:</span> lane-cmd-v3.2-web</div>
+                  <div><span class="term-text-dim">CPU:</span> AMD Ryzen 9 5950X (ambient water-cooled by Arctic air)</div>
+                  <div><span class="term-text-dim">Memory:</span> 64GB ECC DDR4 @ 3200MT/s</div>
+                  <div><span class="term-text-dim">Beverage:</span> Aeropress Double Shot (Ethiopian Yirgacheffe)</div>
+                </div>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'coffee':
+            print(`
+              <div class="p-3.5 rounded bg-white/[0.03] border term-border text-xs text-slate-300 space-y-2">
+                <div class="font-bold text-white">☕ Lane's Sub-Zero Coffee Protocol</div>
+                <p>When it's dark outside until 10:30 AM, coffee isn't a leisure activity; it's a critical dependency.</p>
+                <ul class="list-disc pl-4 space-y-1 text-slate-400">
+                  <li><strong>Bean:</strong> Medium roast washed Ethiopian or Kenyan.</li>
+                  <li><strong>Dose:</strong> 18.5g ground medium-fine on a Timemore hand grinder.</li>
+                  <li><strong>Method:</strong> Inverted AeroPress, 200g water at 202°F.</li>
+                  <li><strong>Steep:</strong> 2 minutes flat, 30 second steady plunge into a double-wall steel tumbler so it doesn't freeze on the porch.</li>
+                </ul>
+              </div>
+            `);
+            successSound();
+            break;
+
+          case 'resume':
+            downloadResume();
+            break;
+
+          case 'guestbook':
+            showGuestbook(args.slice(1).join(' '));
+            break;
+
+          case 'game':
+            startSurvivalGame();
+            break;
+
+          case 'matrix':
+            toggleMatrix();
+            break;
+
+          case 'theme':
+            const th = args[1];
+            if (['arctic', 'matrix', 'amber', 'dos', 'nord'].includes(th)) {
+              setTheme(th);
+              print(`<div class="text-xs term-text-accent">Switched theme profile to <strong>${th.toUpperCase()}</strong>.</div>`);
+            } else {
+              print(`<div class="text-xs text-slate-400">Usage: theme [arctic | matrix | amber | dos | nord]</div>`);
+            }
+            successSound();
+            break;
+
+          case 'sound':
+            toggleSound();
+            break;
+
+          case 'clear':
+          case 'cls':
+            clear();
+            return;
+
+          default:
+            errorSound();
+            print(`
+              <div class="text-xs text-rose-400">
+                zsh: command not found: <span class="font-bold">${escapeHTML(cmd)}</span>. Type <span class="term-text-accent underline cursor-pointer" onclick="Term.execute('help')">help</span> to view available directives.
+              </div>
+            `);
+            break;
+        }
+      }
+
+
+      function getStoredGuestbook() {
+        const defaultEntries = [
+          { name: "Sarah K.", date: "Fairbanks, AK", msg: "Saw your antenna setup on 30th Ave! Glad to see other systems engineers up here in the interior." },
+          { name: "Dave M.", date: "Seattle, WA", msg: "Love the terminal interface. Sub-zero edge computing is such a cool problem space." }
+        ];
+        try {
+          const raw = localStorage.getItem('lane_guestbook');
+          return raw ? JSON.parse(raw) : defaultEntries;
+        } catch (e) {
+          return defaultEntries;
+        }
+      }
+
+      function showGuestbook(signText) {
+        if (signText) {
+          // Direct sign: e.g. guestbook Hey Lane love the site!
+          const list = getStoredGuestbook();
+          list.unshift({
+            name: "Visitor (" + (new Date().toLocaleDateString()) + ")",
+            date: "Remote Terminal",
+            msg: signText
+          });
+          try { localStorage.setItem('lane_guestbook', JSON.stringify(list)); } catch (e) {}
+          print(`
+            <div class="p-3 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs">
+              Thank you! Your entry has been logged into Lane's workstation guestbook.
+            </div>
+          `);
+          successSound();
+          return;
+        }
+
+        const entries = getStoredGuestbook();
+        let html = `
+          <div class="space-y-3 p-4 rounded bg-white/[0.03] border term-border text-xs">
+            <div class="flex items-center justify-between border-b term-border pb-2">
+              <span class="font-bold text-white text-sm">Station Visitor Guestbook</span>
+              <span class="term-text-dim text-[11px]">${entries.length} Entries Recorded</span>
+            </div>
+            <div class="space-y-2">
+        `;
+
+        entries.forEach(e => {
+          html += `
+            <div class="p-2.5 rounded bg-black/40 border term-border">
+              <div class="flex items-center justify-between text-[11px]">
+                <strong class="term-text-accent">${escapeHTML(e.name)}</strong>
+                <span class="term-text-dim">${escapeHTML(e.date)}</span>
+              </div>
+              <p class="text-slate-300 text-xs mt-1 leading-relaxed">${escapeHTML(e.msg)}</p>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+            <div class="pt-2 text-[11px] text-slate-400">
+              Leave a note by typing: <code class="text-white bg-white/10 px-1 py-0.5 rounded">guestbook Your message here</code>
+            </div>
+          </div>
+        `;
+        print(html);
+        successSound();
+      }
+
+      // Interactive Terminal Dispatch Form
+      function startInteractiveMsg() {
+        interactiveMode = 'msg_name';
+        print(`
+          <div class="p-3 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs space-y-1">
+            <div class="font-bold">[STATION DIRECT TRANSMISSION PROTOCOL]</div>
+            <div>Please type your <strong>Name or Handle</strong> and press [Enter]:</div>
+          </div>
+        `);
+        focusInput();
+      }
+
+      function handleInteractiveMode(val) {
+        if (interactiveMode === 'msg_name') {
+          tempMsg.name = val;
+          interactiveMode = 'msg_body';
+          print(`
+            <div class="text-xs text-slate-300">
+              Sender set to: <strong class="text-white">${escapeHTML(val)}</strong>.
+            </div>
+            <div class="p-2 rounded bg-cyan-500/10 text-cyan-300 text-xs mt-1">
+              Now type your <strong>message or inquiry for Lane</strong> and press [Enter]:
+            </div>
+          `);
+          focusInput();
+        } else if (interactiveMode === 'msg_body') {
+          tempMsg.body = val;
+          interactiveMode = null; // Exit mode
+
+          // Save to guestbook as well
+          const list = getStoredGuestbook();
+          list.unshift({
+            name: tempMsg.name + " [Direct]",
+            date: "Fairbanks Relay",
+            msg: tempMsg.body
+          });
+          try { localStorage.setItem('lane_guestbook', JSON.stringify(list)); } catch (e) {}
+
+          print(`
+            <div class="p-3.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-xs text-emerald-300 space-y-1.5">
+              <div class="font-bold text-sm">✓ PACKET TRANSMITTED TO LANE KRAJCIK</div>
+              <div class="text-slate-200">From: <strong>${escapeHTML(tempMsg.name)}</strong></div>
+              <div class="text-slate-300">"${escapeHTML(tempMsg.body)}"</div>
+              <div class="text-[11px] term-text-dim pt-1 border-t border-emerald-500/20">
+                Routed to station terminal at 1301 30th Ave, Fairbanks, AK 99701.
+              </div>
+            </div>
+          `);
+          toast("Transmission routed to Lane");
+          successSound();
+        } else if (interactiveMode === 'game') {
+          handleGameTurn(val);
+        }
+      }
+
+
+      function startSurvivalGame() {
+        interactiveMode = 'game';
+        gameState = {
+          step: 1,
+          temp: -42,
+          warmth: 100,
+          inventory: ['Truck Keys', 'Phone (907-457-2653)', 'Heavy Parka']
+        };
+
+        print(`
+          <div class="p-4 rounded bg-black/60 border border-amber-500/40 text-xs space-y-2 text-slate-200">
+            <div class="font-bold text-amber-400 text-sm flex items-center justify-between">
+              <span>❄ MINI-RPG: SURVIVE FAIRBANKS AT -40°F</span>
+              <span class="text-rose-400 font-mono">AMBIENT: -42°F</span>
+            </div>
+            <p>
+              It's 6:45 PM on 30th Ave in Fairbanks. You step out of your heated workshop. The cold bites your eyelashes instantly.
+              Your truck's engine block heater has been plugged in all day, but the transmission fluid is thick as molasses.
+            </p>
+            <p class="text-amber-200 font-bold">
+              What do you do?
+            </p>
+            <div class="space-y-1 text-slate-300 pl-2">
+              <div><strong>[1]</strong> Turn the key immediately and pray the battery turns over.</div>
+              <div><strong>[2]</strong> Cycle the glow plugs twice, check the block heater cord, and then crank.</div>
+              <div><strong>[3]</strong> Call Lane at (907) 457-2653 for a boost.</div>
+            </div>
+            <div class="text-[11px] term-text-dim pt-1">
+              Type 1, 2, or 3, or type 'exit' to quit the simulation.
+            </div>
+          </div>
+        `);
+        successSound();
+        focusInput();
+      }
+
+      function handleGameTurn(choice) {
+        const trimmed = choice.trim().toLowerCase();
+        if (trimmed === 'exit' || trimmed === 'quit') {
+          interactiveMode = null;
+          gameState = null;
+          print(`<div class="text-xs term-text-dim">Survival simulation terminated. Returned to shell.</div>`);
+          return;
+        }
+
+        if (gameState.step === 1) {
+          if (trimmed === '1') {
+            print(`
+              <div class="p-3 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-1">
+                <div>*Click... click... groan...*</div>
+                <div>The battery voltage drops to 9V under extreme load! Your starter freezes!</div>
+                <div class="text-amber-300 pt-1">Choice: Type <strong>retry</strong> or type <strong>call</strong> Lane for a jump-start.</div>
+              </div>
+            `);
+            errorSound();
+          } else if (trimmed === '2') {
+            gameState.step = 2;
+            print(`
+              <div class="p-3 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs space-y-1">
+                <div>*RUMBLE... CHUG... ROAR!*</div>
+                <div>The V8 diesel roars to life, billowing clouds of crisp white exhaust steam into the sub-zero Fairbanks air!</div>
+                <p class="text-white pt-2 font-bold">
+                  Now you have to get back inside your house on 30th Ave before your fingers freeze. But the front doorknob is iced over!
+                </p>
+                <div class="space-y-1 text-slate-300 pl-2">
+                  <div><strong>[1]</strong> Use your body weight to shoulder the door open.</div>
+                  <div><strong>[2]</strong> Use your pocket butane torch to gently thaw the brass deadbolt.</div>
+                </div>
+              </div>
+            `);
+            successSound();
+          } else if (trimmed === '3' || trimmed === 'call') {
+            print(`
+              <div class="p-3 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs space-y-1">
+                <div>You dial (907) 457-2653. Lane answers immediately:</div>
+                <div class="italic text-white">"Hold tight, grabbing the commercial jump pack and an insulated thermos of coffee from 1301 30th Ave. Be there in two minutes."</div>
+                <div class="text-emerald-300 font-bold pt-1">YOU SURVIVED! Lane saved the day.</div>
+              </div>
+            `);
+            interactiveMode = null;
+            gameState = null;
+            successSound();
+          } else {
+            print(`<div class="text-xs text-slate-400">Please choose 1, 2, or 3 (or 'exit').</div>`);
+          }
+        } else if (gameState.step === 2) {
+          if (trimmed === '2') {
+            print(`
+              <div class="p-3.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs space-y-1">
+                <div class="font-bold text-sm">🎉 VICTORY! YOU HAVE CONQUERED INTERIOR ALASKA.</div>
+                <p>The lock clicks smoothly. You walk inside, throw your parka on the rack, grab an espresso, and fire up your Linux terminal.</p>
+                <div class="text-[11px] text-slate-400 pt-1">Simulation finished. Ready for normal commands.</div>
+              </div>
+            `);
+            interactiveMode = null;
+            gameState = null;
+            successSound();
+          } else {
+            print(`
+              <div class="p-3 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-1">
+                <div>You shoulder the door, but the frozen wood frame is rigid as steel! Your shoulder aches.</div>
+                <div>Try option <strong>2</strong> (use the torch)!</div>
+              </div>
+            `);
+            errorSound();
+          }
+        }
+      }
+
+
+      function downloadResume() {
+        const text = `================================================================================
+LANE KRAJCIK // SYSTEMS & INFRASTRUCTURE DOSSIER
+================================================================================
+Full Name    : Lane Krajcik
+Gender       : Male
+Base Station : 1301 30th Ave, Fairbanks, Alaska 99701
+Country      : United States
+Phone        : (907) 457-2653
+Coordinates  : 64.820038° N, -147.731075° W
+Station Time : Alaska Standard Time (AKST/AKDT)
+
+SUMMARY:
+Senior Systems & Infrastructure Engineer stationed in Interior Alaska.
+Specializing in low-level Rust/C++20, Linux kernel eBPF observability,
+fault-tolerant distributed Raft consensus, and ruggedized edge computing
+engineered to operate in severe sub-arctic environments (-50°F).
+
+AREAS OF MASTERY:
+- Low-Level Systems: Rust, C++20, eBPF, POSIX, Linux Kernel Tuning, Bash
+- Distributed Backbones: Go, Raft, WireGuard, gRPC, Protobuf, Multi-Homing
+- Extreme Cold Hardware: Thermal bootloops, LoRa 915MHz P2P, Solar/Battery
+
+NOTABLE SHIPPED PROJECTS:
+1. Aurora Skycam ML: Real-time geomagnetic IMF Bz predictor in Fairbanks.
+2. 1301 30th Ave Edge Cluster: Ruggedized dual-uplink cold-weather node.
+3. Tanana Valley Mesh: Decentralized emergency packet alert radio backbone.
+
+DIRECT CONTACT:
+Phone: (907) 457-2653
+Address: 1301 30th Ave, Fairbanks, AK 99701
+================================================================================`;
+
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Lane_Krajcik_Resume.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast("Downloaded Lane_Krajcik_Resume.txt");
+        print(`<div class="text-xs term-text-accent">Specification file dispatched: <strong>Lane_Krajcik_Resume.txt</strong></div>`);
+        successSound();
+      }
+
+      function setTheme(name) {
+        document.documentElement.removeAttribute('data-theme');
+        if (name !== 'arctic') {
+          document.documentElement.setAttribute('data-theme', name);
+        }
+        toast(`Theme: ${name.toUpperCase()}`);
+      }
+
+      function toggleSound() {
+        initAudio();
+        soundEnabled = !soundEnabled;
+        const btn = document.getElementById('soundStatus');
+        if (btn) btn.textContent = soundEnabled ? '🔊 SFX: ON' : '🔇 SFX: OFF';
+        toast(`Sound FX: ${soundEnabled ? 'Enabled' : 'Muted'}`);
+        if (soundEnabled) successSound();
+      }
+
+      function toggleScanlines() {
+        const el = document.getElementById('crtOverlay');
+        if (!el) return;
+        el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+        toast(`CRT Scanlines: ${el.style.display === 'none' ? 'OFF' : 'ON'}`);
+      }
+
+      function clear() {
+        const out = document.getElementById('termOutput');
+        if (out) out.innerHTML = '';
+        renderWelcome();
+      }
+
+      // Matrix Screensaver Mode
+      let matrixInterval = null;
+      function toggleMatrix() {
+        const canvas = document.getElementById('matrixCanvas');
+        if (!canvas) return;
+
+        if (isMatrixActive) {
+          canvas.style.display = 'none';
+          if (matrixInterval) clearInterval(matrixInterval);
+          isMatrixActive = false;
+          print(`<div class="text-xs term-text-dim">Digital rain screensaver deactivated.</div>`);
+          return;
+        }
+
+        isMatrixActive = true;
+        canvas.style.display = 'block';
+        toast("Matrix Active - Click anywhere or press ESC to exit");
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const chars = '0123456789ABCDEF@#$%*+-=LANEKRAJCIKFAIRBANKS99701';
+        const fontSize = 14;
+        const columns = Math.floor(canvas.width / fontSize);
+        const drops = Array(columns).fill(1);
+
+        matrixInterval = setInterval(() => {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.fillStyle = '#22c55e';
+          ctx.font = `${fontSize}px monospace`;
+
+          for (let i = 0; i < drops.length; i++) {
+            const char = chars[Math.floor(Math.random() * chars.length)];
+            ctx.fillText(char, i * fontSize, drops[i] * fontSize);
+
+            if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+              drops[i] = 0;
+            }
+            drops[i]++;
+          }
+        }, 33);
+
+        const stopMatrix = () => {
+          if (isMatrixActive) toggleMatrix();
+          window.removeEventListener('click', stopMatrix);
+        };
+        setTimeout(() => window.addEventListener('click', stopMatrix), 200);
+      }
+
+      // Input form handler
+      function submitInput() {
+        const inp = document.getElementById('termInput');
+        if (!inp) return;
+        const val = inp.value;
+        inp.value = '';
+        execute(val);
+      }
+
+      // Key listeners (Tab autocomplete, History Up/Down)
+      function setupListeners() {
+        const inp = document.getElementById('termInput');
+        if (!inp) return;
+
+        inp.addEventListener('keydown', (e) => {
+          clickSound();
+
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitInput();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (history.length > 0 && historyIndex > 0) {
+              historyIndex--;
+              inp.value = history[historyIndex];
+            }
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndex < history.length - 1) {
+              historyIndex++;
+              inp.value = history[historyIndex];
+            } else {
+              historyIndex = history.length;
+              inp.value = '';
+            }
+          } else if (e.key === 'Tab') {
+            e.preventDefault();
+            const val = inp.value.trim().toLowerCase();
+            if (!val) return;
+            const match = COMMAND_LIST.find(c => c.startsWith(val));
+            if (match) {
+              inp.value = match;
+              successSound();
+            }
+          } else if (e.key === 'Escape' && isMatrixActive) {
+            toggleMatrix();
+          }
+        });
+      }
+
+      // Boot Lifecycle
+      function init() {
+        renderWelcome();
+        setupListeners();
+        focusInput();
+      }
+
+      return {
+        init,
+        execute,
+        submitInput,
+        focusInput,
+        clear,
+        setTheme,
+        toggleSound,
+        toggleScanlines,
+        copyToClipboard,
+        startInteractiveMsg,
+        toast
+      };
+
+    })();
+
+    // Boot on window ready
+    window.addEventListener('DOMContentLoaded', () => {
+      Term.init();
+    });
+  </script>
+
+</body>
+</html>
+```
